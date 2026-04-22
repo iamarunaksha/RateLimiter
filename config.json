@@ -1,0 +1,23 @@
+{
+  "fixedWindowRateLimit": {
+    "limit": 5,
+    "windowTimeMs": 30000
+  },
+
+  "slidingWindowRateLimit": {
+    "limit": 5,
+    "windowTimeMs": 30000
+  },
+
+  "tokenBucket": {
+    "capacity": 5,
+    "refillAmount": 1,
+    "refillAfterMs": 30000
+  },
+
+  "tokenBucketRedis": {
+    "capacity": 5,
+    "refillAmount": 1,
+    "refillAfterMs": 30000
+  }
+}

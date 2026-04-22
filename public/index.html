@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rate Limiter Visualizer</title>
+  <meta name="description" content="Interactive dashboard to visualize and test Fixed Window, Token Bucket, Sliding Window, and Redis-backed rate limiting algorithms in real-time." />
+  <link rel="icon" type="image/x-icon" href="/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    /* ===== RESET & BASE ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-primary: #08080f;
+      --bg-card: rgba(255, 255, 255, 0.03);
+      --bg-card-hover: rgba(255, 255, 255, 0.05);
+      --border-card: rgba(255, 255, 255, 0.06);
+      --text-primary: #e8e8ed;
+      --text-secondary: #8b8b9e;
+      --text-muted: #555568;
+
+      --color-success: #22c55e;
+      --color-success-glow: rgba(34, 197, 94, 0.25);
+      --color-blocked: #ef4444;
+      --color-blocked-glow: rgba(239, 68, 68, 0.25);
+
+      --accent-fw: #6366f1;
+      --accent-fw-light: #818cf8;
+      --accent-tb: #a855f7;
+      --accent-tb-light: #c084fc;
+      --accent-sw: #06b6d4;
+      --accent-sw-light: #22d3ee;
+      --accent-redis: #f43f5e;
+      --accent-redis-light: #fb7185;
+
+      --font-sans: 'Inter', -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --radius: 16px;
+      --radius-sm: 10px;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ===== AMBIENT GLOW BACKGROUND ===== */
+    body::before {
+      content: '';
+      position: fixed;
+      top: -30%;
+      left: -10%;
+      width: 60%;
+      height: 60%;
+      background: radial-gradient(circle, rgba(99,102,241,0.08) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    body::after {
+      content: '';
+      position: fixed;
+      bottom: -20%;
+      right: -10%;
+      width: 50%;
+      height: 50%;
+      background: radial-gradient(circle, rgba(168,85,247,0.06) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ===== HEADER ===== */
+    header {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      padding: 56px 24px 40px;
+    }
+    header .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      background: rgba(99,102,241, 0.12);
+      border: 1px solid rgba(99,102,241, 0.2);
+      color: var(--accent-fw-light);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+    header .badge .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--color-success);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.8); }
+    }
+    header h1 {
+      font-size: clamp(32px, 5vw, 52px);
+      font-weight: 900;
+      letter-spacing: -1.5px;
+      line-height: 1.1;
+      background: linear-gradient(135deg, #fff 0%, var(--text-secondary) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    header p {
+      color: var(--text-secondary);
+      font-size: 16px;
+      margin-top: 12px;
+      max-width: 520px;
+      margin-left: auto;
+      margin-right: auto;
+      line-height: 1.6;
+    }
+
+    /* ===== GRID ===== */
+    main {
+      position: relative;
+      z-index: 1;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px 80px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+    @media (max-width: 820px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    /* ===== CARD ===== */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-card);
+      border-radius: var(--radius);
+      padding: 28px;
+      backdrop-filter: blur(12px);
+      transition: background 0.3s, border-color 0.3s, transform 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .card:hover {
+      background: var(--bg-card-hover);
+      border-color: rgba(255,255,255,0.1);
+      transform: translateY(-2px);
+    }
+    /* Top accent line */
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 28px;
+      right: 28px;
+      height: 2px;
+      border-radius: 0 0 4px 4px;
+      opacity: 0.7;
+    }
+    .card.card-fw::before { background: linear-gradient(90deg, var(--accent-fw), var(--accent-fw-light)); }
+    .card.card-tb::before { background: linear-gradient(90deg, var(--accent-tb), var(--accent-tb-light)); }
+    .card.card-sw::before { background: linear-gradient(90deg, var(--accent-sw), var(--accent-sw-light)); }
+    .card.card-redis::before { background: linear-gradient(90deg, var(--accent-redis), var(--accent-redis-light)); }
+
+    /* ===== CARD HEADER ===== */
+    .card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .card-head .algo-tag {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+    .card-fw .algo-tag { background: rgba(99,102,241,0.15); color: var(--accent-fw-light); }
+    .card-tb .algo-tag { background: rgba(168,85,247,0.15); color: var(--accent-tb-light); }
+    .card-sw .algo-tag { background: rgba(6,182,212,0.15); color: var(--accent-sw-light); }
+    .card-redis .algo-tag { background: rgba(244,63,94,0.15); color: var(--accent-redis-light); }
+
+    .card-head h2 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+    .card-head .desc {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+      line-height: 1.5;
+    }
+
+    /* ===== TOKEN METER ===== */
+    .meter {
+      margin-bottom: 20px;
+    }
+    .meter-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 8px;
+    }
+    .meter-label span {
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+    .meter-label .count {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .meter-bar {
+      width: 100%;
+      height: 10px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 99px;
+      overflow: hidden;
+      position: relative;
+    }
+    .meter-fill {
+      height: 100%;
+      border-radius: 99px;
+      transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1), background 0.3s;
+      position: relative;
+    }
+    .card-fw .meter-fill { background: linear-gradient(90deg, var(--accent-fw), var(--accent-fw-light)); }
+    .card-tb .meter-fill { background: linear-gradient(90deg, var(--accent-tb), var(--accent-tb-light)); }
+    .card-sw .meter-fill { background: linear-gradient(90deg, var(--accent-sw), var(--accent-sw-light)); }
+    .card-redis .meter-fill { background: linear-gradient(90deg, var(--accent-redis), var(--accent-redis-light)); }
+
+    .meter-fill.depleted { background: linear-gradient(90deg, var(--color-blocked), #ff6b6b) !important; }
+
+    /* ===== BUTTONS ===== */
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .btn {
+      flex: 1;
+      padding: 10px 16px;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-fire {
+      color: #fff;
+    }
+    .card-fw .btn-fire { background: var(--accent-fw); }
+    .card-fw .btn-fire:hover:not(:disabled) { background: var(--accent-fw-light); }
+    .card-tb .btn-fire { background: var(--accent-tb); }
+    .card-tb .btn-fire:hover:not(:disabled) { background: var(--accent-tb-light); }
+    .card-sw .btn-fire { background: var(--accent-sw); }
+    .card-sw .btn-fire:hover:not(:disabled) { background: var(--accent-sw-light); }
+    .card-redis .btn-fire { background: var(--accent-redis); }
+    .card-redis .btn-fire:hover:not(:disabled) { background: var(--accent-redis-light); }
+
+    .btn-burst {
+      background: rgba(255,255,255,0.06);
+      color: var(--text-secondary);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .btn-burst:hover:not(:disabled) {
+      background: rgba(255,255,255,0.1);
+      color: var(--text-primary);
+    }
+
+    /* ===== RESPONSE LOG ===== */
+    .log {
+      background: rgba(0,0,0,0.25);
+      border-radius: var(--radius-sm);
+      padding: 4px;
+      max-height: 210px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.1) transparent;
+    }
+    .log::-webkit-scrollbar { width: 4px; }
+    .log::-webkit-scrollbar-track { background: transparent; }
+    .log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 99px; }
+
+    .log-entry {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      animation: slideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .log-entry + .log-entry {
+      margin-top: 2px;
+    }
+    .log-entry:hover {
+      background: rgba(255,255,255,0.03);
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .log-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .log-dot.ok { background: var(--color-success); box-shadow: 0 0 6px var(--color-success-glow); }
+    .log-dot.blocked { background: var(--color-blocked); box-shadow: 0 0 6px var(--color-blocked-glow); }
+
+    .log-status {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      min-width: 32px;
+    }
+    .log-status.ok { color: var(--color-success); }
+    .log-status.blocked { color: var(--color-blocked); }
+
+    .log-msg {
+      color: var(--text-secondary);
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .log-time {
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .log-empty {
+      text-align: center;
+      padding: 24px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    /* ===== HEADERS DISPLAY ===== */
+    .headers-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+    .header-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 10px;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      transition: all 0.3s;
+    }
+    .header-chip .h-key {
+      color: var(--text-muted);
+    }
+    .header-chip .h-val {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    /* ===== RETRY TIMER ===== */
+    .retry-banner {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px;
+      margin-top: 12px;
+      border-radius: var(--radius-sm);
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.15);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--color-blocked);
+    }
+    .retry-banner.visible { display: flex; }
+    .retry-banner svg {
+      flex-shrink: 0;
+    }
+
+    /* ===== FOOTER ===== */
+    footer {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      padding: 0 20px 40px;
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    footer a {
+      color: var(--accent-fw-light);
+      text-decoration: none;
+    }
+    footer a:hover { text-decoration: underline; }
+
+    /* ===== BURST ANIMATION ===== */
+    .btn-fire.firing {
+      animation: btnPulse 0.15s;
+    }
+    @keyframes btnPulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(0.94); }
+      100% { transform: scale(1); }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="badge">
+      <span class="dot"></span>
+      Live Dashboard
+    </div>
+    <h1>Rate Limiter Visualizer</h1>
+    <p>Test and compare four rate-limiting algorithms in real time. Hit the buttons, watch the meters drain, and see how each algorithm behaves differently.</p>
+  </header>
+
+  <main>
+    <div class="grid" id="grid">
+      <!-- Cards are injected by JS -->
+    </div>
+  </main>
+
+  <footer>
+    Built with lots of ❤️ by Arunaksha
+  </footer>
+
+  <script>
+    // ===== CONFIGURATION =====
+    const algorithms = [
+      {
+        id: 'fw',
+        name: 'Fixed Window',
+        endpoint: '/api/fixed-window',
+        cssClass: 'card-fw',
+        desc: 'Resets the counter at fixed time intervals. Simple, but bursts can happen at window edges.',
+        limit: 5
+      },
+      {
+        id: 'tb',
+        name: 'Token Bucket',
+        endpoint: '/api/token-bucket',
+        cssClass: 'card-tb',
+        desc: 'Tokens refill over time. Allows controlled bursts while maintaining a long-term average rate.',
+        limit: 5
+      },
+      {
+        id: 'sw',
+        name: 'Sliding Window',
+        endpoint: '/api/sliding-window',
+        cssClass: 'card-sw',
+        desc: 'Tracks exact timestamps per request. Most accurate — no edge-of-window bursts possible.',
+        limit: 5
+      },
+      {
+        id: 'redis',
+        name: 'Token Bucket (Redis)',
+        endpoint: '/api/token-bucket-redis',
+        cssClass: 'card-redis',
+        desc: 'Same Token Bucket logic, but state lives in Redis — works across multiple server instances.',
+        limit: 5
+      }
+    ];
+
+    // ===== STATE =====
+    const state = {};
+    algorithms.forEach(a => {
+      state[a.id] = { remaining: a.limit, limit: a.limit, retryAfter: 0, logs: [] };
+    });
+
+    // ===== RENDER CARDS =====
+    const grid = document.getElementById('grid');
+
+    algorithms.forEach(algo => {
+      const card = document.createElement('div');
+      card.className = `card ${algo.cssClass}`;
+      card.id = `card-${algo.id}`;
+      card.innerHTML = `
+        <div class="card-head">
+          <div>
+            <h2>${algo.name}</h2>
+            <p class="desc">${algo.desc}</p>
+          </div>
+          <span class="algo-tag">${algo.id.toUpperCase()}</span>
+        </div>
+
+        <div class="meter">
+          <div class="meter-label">
+            <span>Remaining</span>
+            <span class="count" id="count-${algo.id}">${algo.limit} / ${algo.limit}</span>
+          </div>
+          <div class="meter-bar">
+            <div class="meter-fill" id="fill-${algo.id}" style="width: 100%"></div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button class="btn btn-fire" id="btn-fire-${algo.id}" onclick="fireRequest('${algo.id}')">
+            Send Request
+          </button>
+          <button class="btn btn-burst" id="btn-burst-${algo.id}" onclick="fireBurst('${algo.id}')">
+            Burst ×6
+          </button>
+        </div>
+
+        <div class="headers-row" id="headers-${algo.id}">
+          <div class="header-chip">
+            <span class="h-key">Limit:</span>
+            <span class="h-val" id="h-limit-${algo.id}">—</span>
+          </div>
+          <div class="header-chip">
+            <span class="h-key">Remaining:</span>
+            <span class="h-val" id="h-remaining-${algo.id}">—</span>
+          </div>
+          <div class="header-chip">
+            <span class="h-key">Retry-After:</span>
+            <span class="h-val" id="h-retry-${algo.id}">—</span>
+          </div>
+        </div>
+
+        <div class="retry-banner" id="retry-${algo.id}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span id="retry-text-${algo.id}">Rate limited — retry in <strong id="retry-sec-${algo.id}">0</strong>s</span>
+        </div>
+
+        <div class="log" id="log-${algo.id}">
+          <div class="log-empty">No requests yet — hit Send Request!</div>
+        </div>
+      `;
+      grid.appendChild(card);
+    });
+
+    // ===== SEND REQUEST =====
+    async function fireRequest(algoId) {
+      const algo = algorithms.find(a => a.id === algoId);
+      const btn = document.getElementById(`btn-fire-${algoId}`);
+
+      // Micro-animation on button
+      btn.classList.remove('firing');
+      void btn.offsetWidth; // force reflow
+      btn.classList.add('firing');
+
+      try {
+        const res = await fetch(algo.endpoint);
+        const body = await res.json();
+
+        // Read headers
+        const limit = res.headers.get('X-RateLimit-Limit');
+        const remaining = res.headers.get('X-RateLimit-Remaining');
+        const retryAfter = res.headers.get('Retry-After');
+
+        const s = state[algoId];
+        s.limit = limit ? parseInt(limit) : s.limit;
+        s.remaining = remaining !== null ? parseInt(remaining) : (res.ok ? Math.max(0, s.remaining - 1) : 0);
+
+        // Update header chips
+        document.getElementById(`h-limit-${algoId}`).textContent = limit || '—';
+        document.getElementById(`h-remaining-${algoId}`).textContent = remaining !== null ? remaining : '—';
+        document.getElementById(`h-retry-${algoId}`).textContent = retryAfter || '—';
+
+        // Update meter
+        updateMeter(algoId, s.remaining, s.limit);
+
+        // Add log entry
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const isOk = res.ok;
+
+        addLog(algoId, {
+          ok: isOk,
+          status: res.status,
+          msg: isOk ? `OK — ${remaining} remaining` : `Blocked — retry in ${retryAfter}s`,
+          time: timeStr
+        });
+
+        // Retry timer
+        if (!isOk && retryAfter) {
+          startRetryTimer(algoId, parseInt(retryAfter));
+        } else {
+          hideRetryBanner(algoId);
+        }
+
+      } catch (err) {
+        addLog(algoId, {
+          ok: false,
+          status: 'ERR',
+          msg: 'Network error — is the server running?',
+          time: new Date().toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        });
+      }
+    }
+
+    // ===== BURST MODE =====
+    async function fireBurst(algoId) {
+      const btn = document.getElementById(`btn-burst-${algoId}`);
+      const fireBtn = document.getElementById(`btn-fire-${algoId}`);
+      btn.disabled = true;
+      fireBtn.disabled = true;
+
+      for (let i = 0; i < 6; i++) {
+        await fireRequest(algoId);
+        await sleep(120); // small delay so the UI can animate
+      }
+
+      btn.disabled = false;
+      fireBtn.disabled = false;
+    }
+
+    // ===== UI HELPERS =====
+    function updateMeter(algoId, remaining, limit) {
+      const pct = Math.max(0, (remaining / limit) * 100);
+      const fill = document.getElementById(`fill-${algoId}`);
+      const count = document.getElementById(`count-${algoId}`);
+
+      fill.style.width = pct + '%';
+      count.textContent = `${Math.max(0, remaining)} / ${limit}`;
+
+      if (remaining <= 0) {
+        fill.classList.add('depleted');
+      } else {
+        fill.classList.remove('depleted');
+      }
+    }
+
+    function addLog(algoId, entry) {
+      const log = document.getElementById(`log-${algoId}`);
+      // Remove empty state
+      const empty = log.querySelector('.log-empty');
+      if (empty) empty.remove();
+
+      const el = document.createElement('div');
+      el.className = 'log-entry';
+      el.innerHTML = `
+        <div class="log-dot ${entry.ok ? 'ok' : 'blocked'}"></div>
+        <span class="log-status ${entry.ok ? 'ok' : 'blocked'}">${entry.status}</span>
+        <span class="log-msg">${entry.msg}</span>
+        <span class="log-time">${entry.time}</span>
+      `;
+
+      // Prepend (newest on top)
+      log.insertBefore(el, log.firstChild);
+
+      // Keep max 20 entries
+      const entries = log.querySelectorAll('.log-entry');
+      if (entries.length > 20) {
+        entries[entries.length - 1].remove();
+      }
+    }
+
+    // ===== RETRY COUNTDOWN =====
+    const retryIntervals = {};
+
+    function startRetryTimer(algoId, seconds) {
+      // Clear any existing timer
+      if (retryIntervals[algoId]) clearInterval(retryIntervals[algoId]);
+
+      const banner = document.getElementById(`retry-${algoId}`);
+      const secEl = document.getElementById(`retry-sec-${algoId}`);
+
+      banner.classList.add('visible');
+      secEl.textContent = seconds;
+
+      let remaining = seconds;
+      retryIntervals[algoId] = setInterval(() => {
+        remaining--;
+        secEl.textContent = remaining;
+        if (remaining <= 0) {
+          clearInterval(retryIntervals[algoId]);
+          hideRetryBanner(algoId);
+          // Reset meter optimistically
+          const s = state[algoId];
+          updateMeter(algoId, 1, s.limit);
+        }
+      }, 1000);
+    }
+
+    function hideRetryBanner(algoId) {
+      document.getElementById(`retry-${algoId}`).classList.remove('visible');
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // ===== FETCH STATUS ON PAGE LOAD =====
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+
+        // Map frontend algo IDs to status response keys
+        const mapping = { fw: 'fw', tb: 'tb', sw: 'sw', redis: 'redis' };
+
+        for (const [algoId, key] of Object.entries(mapping)) {
+          if (data[key]) {
+            const s = state[algoId];
+            s.remaining = data[key].remaining;
+            s.limit = data[key].limit;
+            updateMeter(algoId, s.remaining, s.limit);
+
+            // Update header chips too
+            document.getElementById(`h-limit-${algoId}`).textContent = s.limit;
+            document.getElementById(`h-remaining-${algoId}`).textContent = s.remaining;
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch status:', err);
+      }
+    }
+
+    // Call on page load
+    fetchStatus();
+
+    // Poll every 5 seconds so meters update as tokens refill
+    setInterval(fetchStatus, 5000);
+  </script>
+</body>
+</html>
