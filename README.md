@@ -4,8 +4,6 @@ Building a rate limiter is easy. Building one that doesn't frustrate users while
 
 **RateCraft** is a playground I built to visualize and compare three different rate-limiting strategies in real-time. It’s not just a set of middlewares—it comes with a live dashboard so you can see exactly how tokens refill, windows slide, and requests get blocked.
 
-![Main Dashboard Placeholder](https://via.placeholder.com/1200x600?text=Rate+Limiter+Dashboard+Overview)
-
 ---
 
 ## 🚀 Why this project?
