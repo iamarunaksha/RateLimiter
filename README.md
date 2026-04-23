@@ -51,8 +51,8 @@ All the goodness of the Token Bucket, but synced across multiple server instance
 ## 📸 Interface Preview
 
 <p align="center">
-  <img src="assets/image1.png" width="45%" />
-  <img src="assets/image2.png" width="45%" />
+  <img src="./assets/image-1.png" width="45%" />
+  <img src="./assets/image-2.png" width="45%" />
 </p>
 
 ---
